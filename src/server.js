@@ -7,6 +7,7 @@ var logger = require('morgan');
 var bodyParser = require('body-parser');
 var uuidGen = require('node-uuid');
 var cookieParser = require('cookie-parser');
+var pg = require('pg');
 
 var app = express();
 var port = process.env.PORT || 5000;
