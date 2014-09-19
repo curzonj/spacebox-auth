@@ -133,9 +133,8 @@ app.get('/auth', function(req, res) {
 
 app.post('/authorized', function(req, res) {
     var token = req.param('token') || req.body.token;
-    var action = req.param('action') || req.body.action;
+    var account = req.param('account') || req.body.account;
     var authorization = tokens[token];
-    var metadata = req.body;
     var now = new Date().getTime();
 
     if (authorization === undefined || authorization.expires < now) {
@@ -144,14 +143,13 @@ app.post('/authorized', function(req, res) {
         return;
     }
 
-    // Currently this is the only supported authorization, but
-    // there will be more
-    if (metadata.account !== undefined && authorization.account != metadata.account) {
+    if (account !== undefined && authorization.account != account) {
         res.sendStatus(401);
         return;
     }
 
-    res.sendStatus(204);
+    // TODO add support for more policy metadata
+    res.send({});
 });
 
 app.post('/token', function(req, res) {
