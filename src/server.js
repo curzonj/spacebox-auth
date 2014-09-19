@@ -14,32 +14,144 @@ var port = process.env.PORT || 5000;
 
 app.use(logger('dev'));
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.urlencoded({
+    extended: false
+}));
 app.use(cookieParser());
 
 var tokens = {};
+var accounts = {};
 
-app.get('/auth', function(req, res) {
-    console.log("Cookies: ", req.cookies);
-    var account = req.cookies.account;
-    if (account === undefined) {
-        account = uuidGen.v1();
-        res.cookie("account", account);
+function getBasicAuth(req) {
+    var authorization = req.headers.authorization;
+
+    if (!authorization) return {};
+
+    var parts = authorization.split(' ');
+
+    if (parts.length !== 2) return {};
+
+    var scheme = parts[0],
+        credentials = new Buffer(parts[1], 'base64').toString(),
+        index = credentials.indexOf(':');
+
+    if ('Basic' != scheme || index < 0) return {};
+
+    var user = credentials.slice(0, index),
+        pass = credentials.slice(index + 1);
+
+    return {
+        user: user,
+        password: pass
+    };
+}
+
+function isAPIRequest(req) {
+    var header = req.get('content-type');
+    return (header !== undefined && header.split(';')[0] == "application/json");
+}
+
+app.post('/accounts', function(req, res) {
+    if (!isAPIRequest(req)) {
+        return res.status(400).send("json requests only");
     }
-    var token = uuidGen.v4();
-    tokens[token] = {
-        account: account,
-        expires: new Date().getTime() + 5000
+
+    var account = uuidGen.v1();
+    accounts[account] = {
+        secret: req.body.secret
     };
 
-    var url = urlUtil.parse(req.param("returnTo"));
-    if (url.query) {
-        url.query.token = token;
+    res.send({
+        account: account
+    });
+});
+
+app.get('/auth', function(req, res) {
+    var account, secret;
+
+    if (isAPIRequest(req)) {
+        var basic_auth = getBasicAuth(req);
+        if (basic_auth.user === undefined) return res.sendStatus(401);
+
+        account = basic_auth.user;
+        secret = basic_auth.password;
     } else {
-        url.query = { token: token };
+        secret = req.cookies.account_secret;
+        account = req.cookies.account;
+
+        if (account === undefined) {
+            account = uuidGen.v1();
+            secret = uuidGen.v4();
+
+            accounts[account] = {
+                secret: secret
+            };
+        }
     }
 
-    res.redirect(urlUtil.format(url));
+    var account_data = accounts[account];
+
+    if (account_data === undefined || account_data.secret != secret) {
+        return res.sendStatus(401);
+    }
+
+    var token = uuidGen.v4();
+    var ttl = req.param('ttl') || 300; // default 5min ttl
+    var expires = new Date().getTime() + (ttl * 1000);
+
+    tokens[token] = {
+        account: account,
+        expires: expires
+    };
+
+    if (isAPIRequest(req)) {
+        res.send({
+            account: account,
+            expires: expires,
+            token: token
+        });
+    } else {
+        res.cookie("account", account);
+        res.cookie("account_secret", secret);
+
+        if (req.param("returnTo") === undefined) {
+            res.send("Successfully authenticated");
+        } else {
+            var url = urlUtil.parse(req.param("returnTo"));
+            if (url.query) {
+                url.query.token = token;
+            } else {
+                url.query = {
+                    token: token
+                };
+            }
+
+            res.redirect(urlUtil.format(url));
+        }
+    }
+});
+
+app.post('/authorized', function(req, res) {
+    var token = req.param('token') || req.body.token;
+    var action = req.param('action') || req.body.action;
+    var authorization = tokens[token];
+    var metadata = req.body;
+    var now = new Date().getTime();
+
+    if (authorization === undefined || authorization.expires < now) {
+        console.log("expired token", req.body, token, authorization, now);
+        res.sendStatus(401);
+        return;
+    }
+
+    // Currently this is the only supported authorization, but
+    // there will be more
+    if (metadata.account !== undefined && authorization.account != metadata.account) {
+        res.sendStatus(401);
+        return;
+    }
+
+    res.sendStatus(204);
 });
 
 app.post('/token', function(req, res) {
