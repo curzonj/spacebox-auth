@@ -20,7 +20,15 @@ app.use(bodyParser.urlencoded({
 app.use(cookieParser());
 
 var tokens = {};
-var accounts = {};
+var accounts = {
+    // Obviously only going to be here during development.
+    // For deployment the auth server will be backed by
+    // a database and you can creating these during deployment.
+    "08b9cfde-5612-486e-bb34-78605e5f0375": {
+        "secret": "40a58204-1c50-41fc-bb66-89a357b08e1c",
+        "privileged": true
+    }
+};
 
 function getBasicAuth(req) {
     var authorization = req.headers.authorization;
@@ -58,7 +66,8 @@ app.post('/accounts', function(req, res) {
 
     var account = uuidGen.v1();
     accounts[account] = {
-        secret: req.body.secret
+        secret: req.body.secret,
+        privileged: (req.body.privileged === true)
     };
 
     res.send({
@@ -101,6 +110,7 @@ app.get('/auth', function(req, res) {
 
     tokens[token] = {
         account: account,
+        privileged: (account_data.privileged === true),
         expires: expires
     };
 
@@ -131,30 +141,36 @@ app.get('/auth', function(req, res) {
     }
 });
 
-app.post('/authorized', function(req, res) {
+app.post('/token', function(req, res) {
     var token = req.param('token') || req.body.token;
-    var account = req.param('account') || req.body.account;
+    var restricted = req.param('restricted');
+
     var authorization = tokens[token];
     var now = new Date().getTime();
 
     if (authorization === undefined || authorization.expires < now) {
-        console.log("expired token", req.body, token, authorization, now);
-        res.sendStatus(401);
-        return;
+        return res.sendStatus(401);
     }
 
-    if (account !== undefined && authorization.account != account) {
-        res.sendStatus(401);
-        return;
+    if ((restricted === true || restricted == 'true') &&
+        authorization.privileged !== true) {
+        console(authorization.account, "rejected for restricted endpoint");
+        return res.sendStatus(401);
     }
 
-    // TODO add support for more policy metadata
-    res.send({});
-});
+    // If you are privileged, you can pretend to be anybody you want
+    if (authorization.privileged === true && token.indexOf(':') > 0) {
+        var parts = token.split(':');
+        authorization.account = parts[1];
+    }
 
-app.post('/token', function(req, res) {
-    var token = req.param('token');
-    res.send(tokens[token]);
+    // TODO include a list of all the groups this person belongs to
+    res.send({
+        account: authorization.account,
+        expires: authorization.expires, // this is so they can cache it
+        privileged: (authorization.privileged === true),
+        groups: []
+    });
 });
 
 var server = http.createServer(app);
