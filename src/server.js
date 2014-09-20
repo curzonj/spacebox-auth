@@ -80,7 +80,7 @@ app.get('/auth', function(req, res) {
 
     if (isAPIRequest(req)) {
         var basic_auth = getBasicAuth(req);
-        if (basic_auth.user === undefined) return res.sendStatus(401);
+        if (basic_auth.user === undefined) return res.status(401).send("requires basic auth");
 
         account = basic_auth.user;
         secret = basic_auth.password;
@@ -144,11 +144,20 @@ app.get('/auth', function(req, res) {
 app.post('/token', function(req, res) {
     var token = req.param('token') || req.body.token;
     var restricted = req.param('restricted');
+    var sudo_account;
+
+    if (token.indexOf('/') > 0) {
+        var parts = token.split('/');
+
+        token = parts[0];
+        sudo_account = parts[1];
+    }
 
     var authorization = tokens[token];
     var now = new Date().getTime();
 
     if (authorization === undefined || authorization.expires < now) {
+        console.log("authorization missing or expired: "+token);
         return res.sendStatus(401);
     }
 
@@ -159,9 +168,12 @@ app.post('/token', function(req, res) {
     }
 
     // If you are privileged, you can pretend to be anybody you want
-    if (authorization.privileged === true && token.indexOf(':') > 0) {
-        var parts = token.split(':');
-        authorization.account = parts[1];
+    if (sudo_account !== undefined) {
+        if(authorization.privileged === true) {
+            authorization.account = sudo_account;
+        } else {
+            return res.status(401).send("invalid authorization token");
+        }
     }
 
     // TODO include a list of all the groups this person belongs to
