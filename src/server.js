@@ -163,7 +163,7 @@ app.post('/token', function(req, res) {
 
     if ((restricted === true || restricted == 'true') &&
         authorization.privileged !== true) {
-        console(authorization.account, "rejected for restricted endpoint");
+        console.log(authorization.account, "rejected for restricted endpoint");
         return res.sendStatus(401);
     }
 
