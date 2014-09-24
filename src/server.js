@@ -59,6 +59,119 @@ function isAPIRequest(req) {
     return (header !== undefined && header.split(';')[0] == "application/json");
 }
 
+function authorizeRequest(req, restricted) {
+    var auth_header = req.get('Authorization');
+    if (auth_header === undefined) {
+        throw new Error("not authorized");
+    }
+
+    var parts = auth_header.split(' ');
+
+    // TODO make a way for internal apis to authorize
+    // as a specific account without having to get a
+    // different bearer token for each one. Perhaps
+    // auth will return a certain account if the authorized
+    // token has metadata appended to the end of it
+    // or is fernet encoded.
+    if (parts[0] != "Bearer") {
+        throw new Error("not authorized");
+    }
+
+    return authorizeToken(parts[1], restricted);
+}
+
+function authorizeToken(token, restricted) {
+    var sudo_account;
+
+    if (token.indexOf('/') > 0) {
+        var parts = token.split('/');
+
+        token = parts[0];
+        sudo_account = parts[1];
+    }
+
+    var authorization = tokens[token];
+    var now = new Date().getTime();
+
+    if (authorization === undefined || authorization.expires < now) {
+        throw new Error("authorization missing or expired: "+token);
+    }
+
+    if ((restricted === true || restricted == 'true') &&
+        authorization.privileged !== true) {
+        throw new Error("rejected for restricted endpoint: "+authorization.account);
+    }
+
+    // If you are privileged, you can pretend to be anybody you want
+    if (sudo_account !== undefined) {
+        if(authorization.privileged === true) {
+            authorization.account = sudo_account;
+        } else {
+            throw new Error("invalid authorization token");
+        }
+    }
+
+    return {
+        account: authorization.account,
+        expires: authorization.expires, // this is so they can cache it
+        privileged: (authorization.privileged === true),
+        groups: []
+    };
+}
+
+// Creates a temporary account that expires with a password
+// nobody knows and returns the account id and an authenticated
+// token
+app.post('/accounts/temporary', function(req, res) {
+    var auth;
+
+    try {
+        auth = authorizeRequest(req, true);
+    } catch(e) {
+        return res.status(401).send(e.toString());
+    }
+
+    var parent = req.param('parent');
+
+    if (!isAPIRequest(req)) {
+        return res.status(400).send("json requests only");
+    } else if(req.param('ttl') === undefined) {
+        return res.status(400).send("must specify a ttl");
+// NOTE we are not enforcing the parent account requirement yet
+//    } else if(parent === undefined || accounts[parent] === undefined) {
+//        return res.status(400).send("must specify a valid parent account");
+    }
+
+    var account = uuidGen.v1();
+    var token = uuidGen.v4();
+    var ttl = parseInt(req.param('ttl'));
+    var expires = new Date().getTime() + (ttl * 1000);
+
+    accounts[account] = {
+        secret: uuidGen.v4(), // This is not given out
+        parent: parent,
+        expires: expires,
+        privileged: false
+    };
+
+    tokens[token] = {
+        account: account,
+        privileged: false,
+        expires: expires
+    };
+
+    res.send({
+        account: account,
+        parent: parent,
+        expires: expires,
+        privileged: false,
+        groups: [],
+        token: token
+    });
+});
+
+
+
 app.post('/accounts', function(req, res) {
     if (!isAPIRequest(req)) {
         return res.status(400).send("json requests only");
@@ -105,7 +218,7 @@ app.get('/auth', function(req, res) {
     }
 
     var token = uuidGen.v4();
-    var ttl = req.param('ttl') || 300; // default 5min ttl
+    var ttl = parseInt(req.param('ttl') || 300); // default 5min ttl
     var expires = new Date().getTime() + (ttl * 1000);
 
     tokens[token] = {
@@ -143,46 +256,14 @@ app.get('/auth', function(req, res) {
 
 app.post('/token', function(req, res) {
     var token = req.param('token') || req.body.token;
-    var restricted = req.param('restricted');
-    var sudo_account;
 
-    if (token.indexOf('/') > 0) {
-        var parts = token.split('/');
-
-        token = parts[0];
-        sudo_account = parts[1];
+    try {
+        var auth = authorizeToken(token, req.param('restricted'));
+        res.send(auth);
+    } catch(e) {
+        console.log(e);
+        res.status(401).send(e.toString());
     }
-
-    var authorization = tokens[token];
-    var now = new Date().getTime();
-
-    if (authorization === undefined || authorization.expires < now) {
-        console.log("authorization missing or expired: "+token);
-        return res.sendStatus(401);
-    }
-
-    if ((restricted === true || restricted == 'true') &&
-        authorization.privileged !== true) {
-        console.log(authorization.account, "rejected for restricted endpoint");
-        return res.sendStatus(401);
-    }
-
-    // If you are privileged, you can pretend to be anybody you want
-    if (sudo_account !== undefined) {
-        if(authorization.privileged === true) {
-            authorization.account = sudo_account;
-        } else {
-            return res.status(401).send("invalid authorization token");
-        }
-    }
-
-    // TODO include a list of all the groups this person belongs to
-    res.send({
-        account: authorization.account,
-        expires: authorization.expires, // this is so they can cache it
-        privileged: (authorization.privileged === true),
-        groups: []
-    });
 });
 
 var server = http.createServer(app);
