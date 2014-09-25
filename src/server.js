@@ -132,6 +132,15 @@ app.post('/accounts/temporary', function(req, res) {
     }
 
     var parent = req.param('parent');
+    var parentAccount = accounts[parent];
+    var privileged = false;
+
+    if (parentAccount === undefined) {
+        // TODO we'll enable this later
+        //return res.status(401).send("invalid parent account");
+    } else {
+        privileged = parentAccount.privileged;
+    }
 
     if (!isAPIRequest(req)) {
         return res.status(400).send("json requests only");
@@ -151,12 +160,12 @@ app.post('/accounts/temporary', function(req, res) {
         secret: uuidGen.v4(), // This is not given out
         parent: parent,
         expires: expires,
-        privileged: false
+        privileged: privileged
     };
 
     tokens[token] = {
         account: account,
-        privileged: false,
+        privileged: privileged,
         expires: expires
     };
 
@@ -164,7 +173,7 @@ app.post('/accounts/temporary', function(req, res) {
         account: account,
         parent: parent,
         expires: expires,
-        privileged: false,
+        privileged: privileged,
         groups: [],
         token: token
     });
