@@ -81,7 +81,8 @@ function authorizeRequest(req, restricted) {
 }
 
 function authorizeToken(token, restricted) {
-    var sudo_account;
+    var sudo_account,
+        original_token = token;
 
     if (token.indexOf('/') > 0) {
         var parts = token.split('/');
@@ -93,8 +94,10 @@ function authorizeToken(token, restricted) {
     var authorization = tokens[token];
     var now = new Date().getTime();
 
-    if (authorization === undefined || authorization.expires < now) {
-        throw new Error("authorization missing or expired: "+token);
+    if (authorization === undefined) {
+        throw new Error("authorization missing: "+original_token);
+    } else if (authorization.expires < now) {
+        throw new Error("authorization expired: "+original_token);
     }
 
     if ((restricted === true || restricted == 'true') &&
@@ -265,6 +268,10 @@ app.get('/auth', function(req, res) {
 
 app.post('/token', function(req, res) {
     var token = req.param('token') || req.body.token;
+
+    if (token === undefined) {
+        return res.status(400).send('token parameter is required');
+    }
 
     try {
         var auth = authorizeToken(token, req.param('restricted'));
