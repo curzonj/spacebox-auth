@@ -313,7 +313,6 @@ app.post('/token', function(req, res) {
 
     try {
         authorizeToken(token, req.param('restricted')).then(function(auth) {
-            console.log(auth);
             res.send(auth);
         }).catch(function(e) {
             console.log(e);
