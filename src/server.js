@@ -224,18 +224,13 @@ app.post('/accounts', function(req, res) {
         privileged: (req.body.privileged === true)
     }).then(function() {
         res.send({ account: account })
-    }).catch(function(e) {
-        console.log(e)
-        console.log(e.stack)
-        res.status(500).send(e.toString())
-    }).done()
+    }).fail(C.http.errHandler(req, res, console.log)).done()
 })
 
 app.get('/auth', function(req, res) {
     var account, secret
 
     Q.fcall(function () {
-        console.log(req.headers);
         if (isAPIRequest(req)) {
             var basic_auth = getBasicAuth(req)
             if (basic_auth.user === undefined) return res.status(401).send("requires basic auth")
