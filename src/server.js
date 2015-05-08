@@ -5,19 +5,26 @@ var urlUtil = require("url"),
     express = require("express"),
     moment = require("moment"),
     logger = require('morgan'),
+    npm_debug = require('debug'),
+    log = npm_debug('auth:info'),
+    error = npm_debug('auth:error'),
+    debug = npm_debug('auth:debug'),
     bodyParser = require('body-parser'),
     uuidGen = require('node-uuid'),
     cookieParser = require('cookie-parser'),
     C = require('spacebox-common'),
+    db = require('spacebox-common-native').db,
+    qhttp = require("q-io/http"),
     Q = require('q')
 
-C.db.select('auth')
+db.select('auth')
 Q.longStackSupport = true
 
 var app = express()
 var port = process.env.PORT || 5000
 
 app.use(logger('dev'))
+C.http.cors_policy(app)
 app.use(bodyParser.json())
 app.use(bodyParser.urlencoded({
     extended: false
@@ -27,34 +34,37 @@ app.use(cookieParser())
 var dao = {
     tokens: {
         get: function(uuid) {
-            return C.db.
+            return db.
                 query("select * from tokens where id=$1", [ uuid ]).
                 then(function(data) {
                     return data[0]
                 })
         },
-        insert: function(uuid, doc) {
-            return C.db.
-                query("insert into tokens (id, account_id, privileged, expires) values ($1, $2, $3, $4)",
-                      [ uuid, doc.account_id, doc.privileged, new Date(doc.expires) ])
+        insert: function(doc) {
+            return db.
+                query("insert into tokens (id, account_id, privileged, expires) values (uuid_generate_v4(), $1, $2, $3) returning *",
+                      [ doc.account_id, doc.privileged, new Date(doc.expires) ])
         }
     },
     accounts: {
         get: function(uuid) {
-            return C.db.
+            return db.
                 query("select * from accounts where id=$1", [ uuid ]).
                 then(function(data) {
                     return data[0]
                 })
         },
-        insert: function(uuid, doc) {
+        insert: function(doc) {
             var fullDoc = C.deepMerge(doc, {
-                privileged: false
+                secret: uuidGen.v4(),
+                privileged: false,
+                expires: null,
+                google_account: null,
             });
 
-            return C.db.
-                query("insert into accounts (id, secret, privileged, expires) values ($1, $2, $3, $4)",
-                      [ uuid, fullDoc.secret, fullDoc.privileged, moment(fullDoc.expires).toDate() ])
+            return db.
+                query("insert into accounts (id, secret, privileged, expires, google_account) values (uuid_generate_v4(), $1, $2, $3, $4) returning *",
+                      [ fullDoc.secret, fullDoc.privileged, fullDoc.expires, fullDoc.google_account ])
         }
     }
 }
@@ -81,11 +91,6 @@ function getBasicAuth(req) {
         user: user,
         password: pass
     }
-}
-
-function isAPIRequest(req) {
-    var header = req.get('content-type')
-    return (header !== undefined && header.split(';')[0] == "application/json")
 }
 
 function authorizeRequest(req, restricted) {
@@ -152,6 +157,38 @@ function authorizeToken(token, restricted) {
     })
 }
 
+function authenticateGoogleToken(token) {
+    return qhttp.read({
+        method: 'GET',
+        url: 'https://www.googleapis.com/oauth2/v1/tokeninfo?access_token='+encodeURIComponent(token)
+    
+    }).then(function(body) {
+        try {
+            return JSON.parse(body.toString())
+        } catch(e) {
+            throw new C.http.Error(401, 'invalid_token', { token: token, body: body })
+        }
+    }).then(function(body) {
+        if (body.issued_to !== process.env.GOOGLE_CLIENT_ID ||
+            body.audience !== process.env.GOOGLE_CLIENT_ID ||
+            body.verified_email !== true) {
+
+            throw new C.http.Error(401, 'invalid_token', body)
+        }
+
+        return db.query("select * from accounts where google_account=$1", [ body.email ]).
+            then(function(data) {
+                if (data.length === 0) {
+                    return dao.accounts.insert({ google_account: body.email })
+                } else {
+                    return data
+                }
+            }).then(function(data) {
+                return data[0]
+            })
+    })
+}
+
 // Creates a temporary account that expires with a password
 // nobody knows and returns the account id and an authenticated
 // token
@@ -159,138 +196,69 @@ app.post('/accounts/temporary', function(req, res) {
     var auth
 
     try {
-        auth = authorizeRequest(req, true)
+        auth = authorizeRequest(req, false)
     } catch(e) {
         return res.status(401).send(e.toString())
     }
 
-    var parent = req.param('parent')
-    var parentAccount //accounts[parent]
-    var privileged = false
-
-    if (parentAccount === undefined) {
-        // TODO we'll enable this later
-        //return res.status(401).send("invalid parent account")
-    } else {
-        privileged = parentAccount.privileged
-    }
-
-    if (!isAPIRequest(req)) {
-        return res.status(400).send("json requests only")
-    } else if(req.param('ttl') === undefined) {
+    if(req.param('ttl') === undefined) {
         return res.status(400).send("must specify a ttl")
-// NOTE we are not enforcing the parent account requirement yet
-//    } else if(parent === undefined || accounts[parent] === undefined) {
-//        return res.status(400).send("must specify a valid parent account")
     }
 
-    var account = uuidGen.v1()
-    var token = uuidGen.v4()
     var ttl = parseInt(req.param('ttl'))
     var expires = new Date().getTime() + (ttl * 1000)
 
-    dao.accounts.insert(account, {
-        secret: uuidGen.v4(), // This is not given out
-        //parent: parent,
-        expires: expires,
-        privileged: privileged
-    }).then(function() {
-        return dao.tokens.insert(token, {
-            account_id: account,
-            privileged: privileged,
+    dao.accounts.insert({
+        parent: auth.account,
+        expires: moment(expires).toDate()
+    }).then(function(data) {
+        return dao.tokens.insert({
+            account_id: data[0].id,
+            privileged: false,
             expires: expires
         })
-    }).then(function() {
+    }).then(function(data) {
         res.send({
-            account: account,
-            parent: parent,
+            account: data[0].account_id,
             expires: expires,
-            privileged: privileged,
+            privileged: false,
             groups: [],
-            token: token
+            token: data[0].id
         })
-    }).fail(C.http.errHandler(req, res, console.log)).done()
-})
-
-app.post('/accounts', function(req, res) {
-    if (!isAPIRequest(req)) {
-        return res.status(400).send("json requests only")
-    }
-
-    var account = uuidGen.v1()
-
-    dao.accounts.insert(account, {
-        secret: req.body.secret,
-        privileged: (req.body.privileged === true)
-    }).then(function() {
-        res.send({ account: account })
     }).fail(C.http.errHandler(req, res, console.log)).done()
 })
 
 app.get('/auth', function(req, res) {
-    var account, secret
-
     Q.fcall(function () {
-        if (isAPIRequest(req)) {
             var basic_auth = getBasicAuth(req)
-            if (basic_auth.user === undefined) return res.status(401).send("requires basic auth")
 
-            account = basic_auth.user
-            secret = basic_auth.password
-        } else {
-            secret = req.cookies.account_secret
-            account = req.cookies.account
-
-            if (account === undefined) {
-                account = uuidGen.v1()
-                secret = uuidGen.v4()
-
-                return dao.accounts.insert(account, {
-                    secret: secret
+            if (basic_auth.user === undefined) {
+                return res.status(401).send("requires basic auth")
+            } else if (basic_auth.user === 'google') {
+                return authenticateGoogleToken(basic_auth.password)
+            } else {
+                return dao.accounts.get(basic_auth.user).
+                tap(function(account_data) {
+                    if (account_data === undefined || account_data.secret != basic_auth.password) {
+                        throw new C.http.Error(401, 'invalid_credentials')
+                    }
                 })
             }
-        }
-    }).then(function() {
-        return dao.accounts.get(account)
     }).then(function(account_data) {
-        if (account_data === undefined || account_data.secret != secret) {
-            return res.sendStatus(401)
-        }
-
-        var token = uuidGen.v4()
+        var account = account_data.id
         var ttl = parseInt(req.param('ttl') || 300) // default 5min ttl
         var expires = new Date().getTime() + (ttl * 1000)
 
-        return dao.tokens.insert(token, {
+        return dao.tokens.insert({
             account_id: account,
             privileged: (account_data.privileged === true),
             expires: expires
-        }).then(function() {
-            if (isAPIRequest(req)) {
-                res.send({
-                    account: account,
-                    expires: expires,
-                    token: token
-                })
-            } else {
-                res.cookie("account", account)
-                res.cookie("account_secret", secret)
-
-                if (req.param("returnTo") === undefined) {
-                    res.send("Successfully authenticated")
-                } else {
-                    var url = urlUtil.parse(req.param("returnTo"))
-                    if (url.query) {
-                        url.query.token = token
-                    } else {
-                        url.query = {
-                            token: token
-                        }
-                    }
-
-                    res.redirect(urlUtil.format(url))
-                }
-            }
+        }).then(function(data) {
+            res.send({
+                account: account,
+                expires: expires,
+                token: data[0].id
+            })
         })
     }).fail(C.http.errHandler(req, res, console.log)).done()
 })

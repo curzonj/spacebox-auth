@@ -1,5 +1,8 @@
+CREATE EXTENSION "uuid-ossp";
+
 CREATE TABLE accounts (
   id uuid PRIMARY KEY,
+  google_account varchar(255),
   secret varchar(255) NOT NULL,
   privileged boolean NOT NULL DEFAULT false,
   expires timestamp
