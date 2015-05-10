@@ -20,6 +20,11 @@ var urlUtil = require("url"),
 db.select('auth')
 Q.longStackSupport = true
 
+C.configure({
+    AUTH_URL: process.env.AUTH_URL,
+    credentials: process.env.INTERNAL_CREDS,
+})
+
 var app = express()
 var port = process.env.PORT || 5000
 
@@ -226,6 +231,14 @@ app.post('/accounts/temporary', function(req, res) {
             token: data[0].id
         })
     }).fail(C.http.errHandler(req, res, console.log)).done()
+})
+
+app.get('/account', function(req, res) {
+    C.http.authorize_req(req).then(function(auth) {
+        return dao.accounts.get(auth.account)
+    }).then(function(data) {
+        res.send(data)
+    }).fail(C.http.errHandler(req, res, error)).done()
 })
 
 app.get('/auth', function(req, res) {
