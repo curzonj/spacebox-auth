@@ -15,7 +15,7 @@ INSERT INTO accounts (id, secret, privileged) VALUES (
 
 CREATE TABLE tokens (
   id uuid PRIMARY KEY,
-  account_id uuid NOT NULL,
+  account_id uuid NOT NULL references accounts (id),
   privileged boolean NOT NULL DEFAULT false,
   expires timestamp
 );

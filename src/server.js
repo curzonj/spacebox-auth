@@ -125,6 +125,7 @@ function authorizeToken(token, restricted) {
 
     if (token.indexOf('/') > 0) {
         var parts = token.split('/')
+        console.log('sudo_token parts', parts)
 
         token = parts[0]
         sudo_account = parts[1]
@@ -147,7 +148,7 @@ function authorizeToken(token, restricted) {
         // If you are privileged, you can pretend to be anybody you want
         if (sudo_account !== undefined) {
             if(authorization.privileged === true) {
-                authorization.account = sudo_account
+                authorization.account_id = sudo_account
             } else {
                 throw new Error("invalid authorization token")
             }
@@ -283,8 +284,11 @@ app.post('/token', function(req, res) {
         return res.status(400).send('token parameter is required')
     }
 
+    console.log("validating token", token, 'with request', req.headers['x-request-id'])
+
     try {
         authorizeToken(token, req.param('restricted')).then(function(auth) {
+            console.log(auth)
             res.send(auth)
         }).fail(C.http.errHandler(req, res, console.log)).done()
     } catch(e) {
