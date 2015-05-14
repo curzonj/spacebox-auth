@@ -304,8 +304,6 @@ app.get('/endpoints', function(req, res) {
         "3dsim": process.env.SPODB_URL,
         auth: process.env.AUTH_URL,
         tech: process.env.TECHDB_URL,
-        build: process.env.BUILD_URL,
-        inventory: process.env.INVENTORY_URL
     })
 })
 
