@@ -17,7 +17,10 @@ var urlUtil = require("url"),
     qhttp = require("q-io/http"),
     Q = require('q')
 
-db.select('auth')
+var common_native = require('spacebox-common-native')
+common_native.db_select('auth')
+var db = common_native.db
+
 Q.longStackSupport = true
 
 C.configure({
