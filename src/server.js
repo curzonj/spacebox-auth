@@ -23,11 +23,6 @@ var db = common_native.db
 
 Q.longStackSupport = true
 
-C.configure({
-    AUTH_URL: process.env.AUTH_URL,
-    credentials: process.env.INTERNAL_CREDS,
-})
-
 var app = express()
 var port = process.env.PORT || 5000
 
@@ -101,7 +96,7 @@ function getBasicAuth(req) {
     }
 }
 
-function authorizeRequest(req, restricted) {
+function authorize_req(req, restricted) {
     var auth_header = req.get('Authorization')
     if (auth_header === undefined) {
         throw new Error("not authorized")
@@ -205,7 +200,7 @@ app.post('/accounts/temporary', function(req, res) {
     var auth
 
     try {
-        auth = authorizeRequest(req, false)
+        auth = authorize_req(req, false)
     } catch(e) {
         return res.status(401).send(e.toString())
     }
@@ -238,7 +233,7 @@ app.post('/accounts/temporary', function(req, res) {
 })
 
 app.get('/account', function(req, res) {
-    C.http.authorize_req(req).then(function(auth) {
+    authorize_req(req).then(function(auth) {
         return dao.accounts.get(auth.account)
     }).then(function(data) {
         res.send(data)
