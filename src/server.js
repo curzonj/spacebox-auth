@@ -12,6 +12,7 @@ var urlUtil = require("url"),
     bodyParser = require('body-parser'),
     uuidGen = require('node-uuid'),
     cookieParser = require('cookie-parser'),
+    jwt = require('jsonwebtoken'),
     C = require('spacebox-common'),
     db = require('spacebox-common-native').db,
     qhttp = require("q-io/http"),
@@ -96,71 +97,6 @@ function getBasicAuth(req) {
     }
 }
 
-function authorize_req(req, restricted) {
-    var auth_header = req.get('Authorization')
-    if (auth_header === undefined) {
-        throw new Error("not authorized")
-    }
-
-    var parts = auth_header.split(' ')
-
-    // TODO make a way for internal apis to authorize
-    // as a specific account without having to get a
-    // different bearer token for each one. Perhaps
-    // auth will return a certain account if the authorized
-    // token has metadata appended to the end of it
-    // or is fernet encoded.
-    if (parts[0] != "Bearer") {
-        throw new Error("not authorized")
-    }
-
-    return authorizeToken(parts[1], restricted)
-}
-
-function authorizeToken(token, restricted) {
-    var sudo_account,
-        original_token = token
-
-    if (token.indexOf('/') > 0) {
-        var parts = token.split('/')
-        console.log('sudo_token parts', parts)
-
-        token = parts[0]
-        sudo_account = parts[1]
-    }
-
-    return dao.tokens.get(token).then(function(authorization) {
-        var now = new Date().getTime()
-
-        if (authorization === undefined) {
-            throw new Error("authorization missing: "+original_token)
-        } else if (authorization.expires < now) {
-            throw new Error("authorization expired: "+original_token)
-        }
-
-        if ((restricted === true || restricted == 'true') &&
-            authorization.privileged !== true) {
-            throw new Error("rejected for restricted endpoint: "+authorization.account)
-        }
-
-        // If you are privileged, you can pretend to be anybody you want
-        if (sudo_account !== undefined) {
-            if(authorization.privileged === true) {
-                authorization.account_id = sudo_account
-            } else {
-                throw new Error("invalid authorization token")
-            }
-        }
-
-        return {
-            account: authorization.account_id,
-            expires: authorization.expires, // this is so they can cache it
-            privileged: (authorization.privileged === true),
-            groups: []
-        }
-    })
-}
-
 function authenticateGoogleToken(token) {
     return qhttp.read({
         method: 'GET',
@@ -197,43 +133,25 @@ function authenticateGoogleToken(token) {
 // nobody knows and returns the account id and an authenticated
 // token
 app.post('/accounts/temporary', function(req, res) {
-    var auth
+    var ttl = parseInt(process.env.TOKEN_TTL || 300) // default 5min ttl
 
-    try {
-        auth = authorize_req(req, false)
-    } catch(e) {
-        return res.status(401).send(e.toString())
-    }
-
-    if(req.param('ttl') === undefined) {
-        return res.status(400).send("must specify a ttl")
-    }
-
-    var ttl = parseInt(req.param('ttl'))
-    var expires = new Date().getTime() + (ttl * 1000)
-
-    dao.accounts.insert({
-        parent: auth.account,
-        expires: moment(expires).toDate()
-    }).then(function(data) {
-        return dao.tokens.insert({
-            account_id: data[0].id,
-            privileged: false,
-            expires: expires
+    C.authorize_req(req).then(function(auth) {
+        return dao.accounts.insert({
+            parent: auth.account,
+            expires: moment().add(ttl, 'seconds').toDate()
         })
     }).then(function(data) {
-        res.send({
-            account: data[0].account_id,
-            expires: expires,
+        res.send(jwt.sign({
+            account: data.id,
             privileged: false,
-            groups: [],
-            token: data[0].id
-        })
+        }, process.env.JWT_SIG_KEY, {
+            expiresInSeconds: ttl
+        }))
     }).fail(C.http.errHandler(req, res, console.log)).done()
 })
 
 app.get('/account', function(req, res) {
-    authorize_req(req).then(function(auth) {
+    C.authorize_req(req).then(function(auth) {
         return dao.accounts.get(auth.account)
     }).then(function(data) {
         res.send(data)
@@ -257,44 +175,13 @@ app.get('/auth', function(req, res) {
                 })
             }
     }).then(function(account_data) {
-        var account = account_data.id
-        var ttl = parseInt(req.param('ttl') || 300) // default 5min ttl
-        var expires = new Date().getTime() + (ttl * 1000)
-
-        return dao.tokens.insert({
-            account_id: account,
-            privileged: (account_data.privileged === true),
-            expires: expires
-        }).then(function(data) {
-            res.send({
-                account: account,
-                expires: expires,
-                token: data[0].id
-            })
-        })
+        res.send(jwt.sign({
+            account: account_data.id,
+            privileged: (account_data.privileged === true)
+        }, process.env.JWT_SIG_KEY, {
+            expiresInSeconds: parseInt(process.env.TOKEN_TTL || 300) // default 5min ttl
+        }))
     }).fail(C.http.errHandler(req, res, console.log)).done()
-})
-
-app.post('/token', function(req, res) {
-    var token = req.param('token') || req.body.token
-
-    if (token === undefined) {
-        return res.status(400).send('token parameter is required')
-    }
-
-    console.log("validating token", token, 'with request', req.headers['x-request-id'])
-
-    try {
-        authorizeToken(token, req.param('restricted')).then(function(auth) {
-            console.log(auth)
-            res.send(auth)
-        }).fail(C.http.errHandler(req, res, console.log)).done()
-    } catch(e) {
-        console.log(e)
-        console.log(e.stack)
-
-        res.status(401).send(e.toString())
-    }
 })
 
 app.get('/endpoints', function(req, res) {
