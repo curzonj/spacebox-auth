@@ -154,7 +154,7 @@ app.post('/accounts/temporary', function(req, res) {
 */
 
 app.get('/account', function(req, res) {
-    C.authorize_req(req).then(function(auth) {
+    C.http.authorize_req(req).then(function(auth) {
         return dao.accounts.get(auth.account)
     }).then(function(data) {
         res.send(data)
