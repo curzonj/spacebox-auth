@@ -129,6 +129,7 @@ function authenticateGoogleToken(token) {
     })
 }
 
+/*
 // Creates a temporary account that expires with a password
 // nobody knows and returns the account id and an authenticated
 // token
@@ -149,6 +150,8 @@ app.post('/accounts/temporary', function(req, res) {
         }))
     }).fail(C.http.errHandler(req, res, console.log)).done()
 })
+
+*/
 
 app.get('/account', function(req, res) {
     C.authorize_req(req).then(function(auth) {
@@ -179,7 +182,7 @@ app.get('/auth', function(req, res) {
             account: account_data.id,
             privileged: (account_data.privileged === true)
         }, process.env.JWT_SIG_KEY, {
-            expiresInSeconds: parseInt(process.env.TOKEN_TTL || 300) // default 5min ttl
+            expiresInSeconds: parseInt(process.env.TOKEN_TTL || 3600) // default 1hr ttl
         }))
     }).fail(C.http.errHandler(req, res, console.log)).done()
 })
