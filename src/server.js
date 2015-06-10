@@ -189,9 +189,9 @@ app.get('/auth', function(req, res) {
 
 app.get('/endpoints', function(req, res) {
     res.send({
-        "3dsim": process.env.SPODB_URL,
+        "3dsim": process.env['3DSIM_URL'],
         auth: process.env.AUTH_URL,
-        tech: process.env.TECHDB_URL,
+        api: process.env.API_URL,
     })
 })
 
