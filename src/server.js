@@ -4,11 +4,6 @@ var urlUtil = require("url"),
     http = require("http"),
     express = require("express"),
     moment = require("moment"),
-    logger = require('morgan'),
-    npm_debug = require('debug'),
-    log = npm_debug('auth:info'),
-    error = npm_debug('auth:error'),
-    debug = npm_debug('auth:debug'),
     bodyParser = require('body-parser'),
     uuidGen = require('node-uuid'),
     cookieParser = require('cookie-parser'),
@@ -27,7 +22,17 @@ Q.longStackSupport = true
 var app = express()
 var port = process.env.PORT || 5000
 
-app.use(logger('dev'))
+var bunyanRequest = require('bunyan-request');
+app.use(bunyanRequest({
+  logger: C.logging.buildBunyan('auth'),
+  headerName: 'x-request-id'
+}));
+
+app.use(function(req, res, next) {
+    req.ctx = C.logging.create(req.log)
+    next()
+})
+
 C.http.cors_policy(app)
 app.use(bodyParser.json())
 app.use(bodyParser.urlencoded({
@@ -158,7 +163,7 @@ app.get('/account', function(req, res) {
         return dao.accounts.get(auth.account)
     }).then(function(data) {
         res.send(data)
-    }).fail(C.http.errHandler(req, res, error)).done()
+    }).fail(C.http.errHandler(req, res, console.log)).done()
 })
 
 app.get('/auth', function(req, res) {
