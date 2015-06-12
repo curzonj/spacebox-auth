@@ -13,6 +13,8 @@ var urlUtil = require("url"),
     qhttp = require("q-io/http"),
     Q = require('q')
 
+C.logging.configure('auth')
+
 var common_native = require('spacebox-common-native')
 common_native.db_select('auth')
 var db = common_native.db
