@@ -1,3 +1,5 @@
 #!/bin/bash
 
+cd $(dirname $0)/..
+
 exec node src/server.js | node_modules/spacebox-common/node_modules/.bin/bunyan -o short

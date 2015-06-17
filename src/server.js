@@ -1,23 +1,18 @@
 'use strict';
 
-var urlUtil = require("url"),
-    http = require("http"),
-    express = require("express"),
-    moment = require("moment"),
-    bodyParser = require('body-parser'),
-    uuidGen = require('node-uuid'),
-    cookieParser = require('cookie-parser'),
-    jwt = require('jsonwebtoken'),
-    C = require('spacebox-common'),
-    db = require('spacebox-common-native').db,
-    qhttp = require("q-io/http"),
-    Q = require('q')
-
-C.logging.configure('auth')
-
-var common_native = require('spacebox-common-native')
-common_native.db_select('auth')
-var db = common_native.db
+var urlUtil = require("url")
+var http = require("http")
+var express = require("express")
+var moment = require("moment")
+var bodyParser = require('body-parser')
+var uuidGen = require('node-uuid')
+var cookieParser = require('cookie-parser')
+var jwt = require('jsonwebtoken')
+var C = require('spacebox-common')
+var qhttp = require("q-io/http")
+var Q = require('q')
+var config = require('./config')
+var db = config.db
 
 Q.longStackSupport = true
 
@@ -26,12 +21,12 @@ var port = process.env.PORT || 5000
 
 var bunyanRequest = require('bunyan-request');
 app.use(bunyanRequest({
-  logger: C.logging.buildBunyan('auth'),
+  logger: config.ctx,
   headerName: 'x-request-id'
 }));
 
 app.use(function(req, res, next) {
-    req.ctx = C.logging.create(req.log)
+    req.ctx = req.log
     next()
 })
 
