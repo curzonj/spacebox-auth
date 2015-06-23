@@ -182,6 +182,7 @@ app.get('/auth', function(req, res) {
     }).then(function(account_data) {
         res.send(jwt.sign({
             account: account_data.id,
+            agent_id: account_data.id, // later I'll make this different
             privileged: (account_data.privileged === true)
         }, process.env.JWT_SIG_KEY, {
             expiresInSeconds: parseInt(process.env.TOKEN_TTL || 3600) // default 1hr ttl
