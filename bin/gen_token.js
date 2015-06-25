@@ -6,7 +6,8 @@ var jwt = require('jsonwebtoken')
 
 console.log(jwt.sign({
     account: process.argv[2],
-    privileged: true,
+    agent_id: process.argv[2],
+    privileged: false,
 }, process.env.JWT_SIG_KEY, {
     expiresInSeconds: 3600
 }))
